@@ -1,0 +1,9 @@
+.venv/
+.apple_install/
+__pycache__/
+*.pyc
+.Python
+build/
+dist/
+release/
+pack/cache/
