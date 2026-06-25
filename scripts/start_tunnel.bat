@@ -10,7 +10,7 @@ echo.
 
 powershell -NoProfile -Command "$a=([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator); if($a){'当前权限: 管理员'}else{'当前权限: 普通用户（若失败请右键以管理员运行）'}"
 echo.
-echo 请保持此窗口打开，然后运行 start_app.bat
+echo 请保持此窗口打开，然后运行 start_app.bat 或 run.bat
 echo 服务地址: http://127.0.0.1:49151
 echo.
 echo 重要: 请先插上 iPhone 并解锁，再打开本窗口

@@ -75,7 +75,7 @@ def device_connection_hint() -> str:
         "  4. 已开启「开发者模式」并重启过手机\n"
         "     设置 → 隐私与安全性 → 开发者模式\n"
         "  5. 关闭 start_tunnel.bat 窗口，重新打开（保持 iPhone 插着）\n"
-        "  6. 运行 check_env.bat 查看设备是否被识别"
+        "  6. 运行 scripts\\check_env.bat 或 check_env.bat 查看设备是否被识别"
     )
 
 
@@ -144,9 +144,12 @@ def run_cmd(
 ) -> subprocess.CompletedProcess[str]:
     exe = find_pymobiledevice3()
     if not exe:
-        raise RuntimeError(
-            "未找到 pymobiledevice3。请先运行: pip install pymobiledevice3"
+        hint = (
+            "未找到 pymobiledevice3，请确认已解压完整发布包（含 runtime 文件夹）"
+            if getattr(sys, "frozen", False)
+            else "未找到 pymobiledevice3，请运行 run.bat 或 pip install pymobiledevice3"
         )
+        raise RuntimeError(hint)
 
     full_args = [exe, *args]
     if on_output:
@@ -262,24 +265,37 @@ class LocationService:
 
     def check_prerequisites(self) -> tuple[bool, str]:
         if not find_pymobiledevice3():
-            return False, "未安装 pymobiledevice3，请运行 pip install -r requirements.txt"
+            if getattr(sys, "frozen", False):
+                return False, "未找到 pymobiledevice3，请确认已解压完整发布包（含 runtime 文件夹）"
+            return False, "未安装 pymobiledevice3，请运行 run.bat 或 pip install -r requirements.txt"
         return True, "pymobiledevice3 已就绪"
 
-    def list_devices(self, on_status: StatusCallback | None = None) -> list[dict]:
+    def list_devices(
+        self, on_status: StatusCallback | None = None, retries: int = 3
+    ) -> list[dict]:
         if not is_usbmux_available():
             raise RuntimeError(usbmux_fix_hint())
 
-        result = run_cmd(["usbmux", "list"], on_output=on_status)
-        combined = strip_ansi((result.stdout or "") + (result.stderr or ""))
-        if result.returncode != 0:
-            hint = self._tunnel_error_hint(combined)
-            msg = combined.strip() or "无法列出设备"
-            raise RuntimeError(f"{msg}\n{hint}" if hint else msg)
-        try:
-            devices = json.loads(result.stdout)
-            return devices if isinstance(devices, list) else []
-        except json.JSONDecodeError:
-            return []
+        last_devices: list[dict] = []
+        for attempt in range(retries):
+            result = run_cmd(["usbmux", "list"], on_output=on_status)
+            combined = strip_ansi((result.stdout or "") + (result.stderr or ""))
+            if result.returncode != 0:
+                hint = self._tunnel_error_hint(combined)
+                msg = combined.strip() or "无法列出设备"
+                raise RuntimeError(f"{msg}\n{hint}" if hint else msg)
+            try:
+                devices = json.loads(result.stdout)
+                last_devices = devices if isinstance(devices, list) else []
+            except json.JSONDecodeError:
+                last_devices = []
+            if last_devices:
+                return last_devices
+            if attempt < retries - 1:
+                if on_status:
+                    on_status("未识别到 iPhone，1 秒后重试...")
+                time.sleep(1)
+        return last_devices
 
     def _device_udid(self, device: dict) -> str | None:
         for key in ("UniqueDeviceID", "Identifier", "SerialNumber", "UDID"):
@@ -297,11 +313,34 @@ class LocationService:
                 raise RuntimeError(usbmux_fix_hint())
 
             if on_status:
+                on_status("正在检测连接...")
+
+            # start_tunnel.bat 可能已建立隧道，优先复用
+            if is_tunneld_server_up():
+                tunnel = wait_for_tunneld_device(timeout=5, on_status=on_status)
+                if tunnel:
+                    self._tunnel = tunnel
+                    if on_status:
+                        on_status(
+                            f"已通过 tunneld 连接 ({tunnel.address}:{tunnel.port})"
+                        )
+                    return tunnel
+
+            if on_status:
                 on_status("正在检测 USB 已连接设备...")
 
             devices = self.list_devices(on_status)
             if not devices:
-                raise RuntimeError(device_connection_hint())
+                if is_tunneld_server_up():
+                    raise RuntimeError(
+                        "tunneld 已运行，但未建立 iPhone 隧道。\n"
+                        + device_connection_hint()
+                    )
+                raise RuntimeError(
+                    "tunneld 未运行。请以管理员运行 scripts\\start_tunnel.bat"
+                    "（或 start_tunnel.bat）并保持窗口打开。\n"
+                    + device_connection_hint()
+                )
 
             udid = self._device_udid(devices[0])
             if on_status:
@@ -312,7 +351,8 @@ class LocationService:
 
             if not is_tunneld_server_up():
                 raise RuntimeError(
-                    "tunneld 未运行。请以管理员运行 start_tunnel.bat 并保持窗口打开。\n"
+                    "tunneld 未运行。请以管理员运行 scripts\\start_tunnel.bat"
+                    "（或 start_tunnel.bat）并保持窗口打开。\n"
                     + device_connection_hint()
                 )
 
@@ -387,12 +427,17 @@ class LocationService:
                 DiagnosticItem("pymobiledevice3", True, f"已安装: {exe}")
             )
         else:
+            hint = (
+                "请确认已解压完整发布包（含 runtime 文件夹）"
+                if getattr(sys, "frozen", False)
+                else "运行 run.bat 或 pip install -r requirements.txt"
+            )
             report.items.append(
                 DiagnosticItem(
                     "pymobiledevice3",
                     False,
                     "未找到可执行文件",
-                    "运行 pip install -r requirements.txt",
+                    hint,
                 )
             )
             return report

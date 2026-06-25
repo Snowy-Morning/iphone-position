@@ -69,6 +69,8 @@ for %%f in (
     enable_developer_mode.bat
     _env.bat
 ) do copy /Y "scripts\%%f" "%OUT%\" >nul
+
+echo [5/5] 压缩 zip...
 set ZIP=release\PositionTool-Windows.zip
 if exist "%ZIP%" del /f /q "%ZIP%"
 powershell -NoProfile -Command "Compress-Archive -Path '%OUT%\*' -DestinationPath '%ZIP%' -Force"

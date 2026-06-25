@@ -564,10 +564,12 @@ def main() -> None:
     except Exception as exc:
         import traceback
 
-        log_path = os.path.join(
-            os.path.dirname(os.path.abspath(sys.executable if getattr(sys, "frozen", False) else __file__)),
-            "crash.log",
+        base = (
+            os.path.dirname(os.path.abspath(sys.executable))
+            if getattr(sys, "frozen", False)
+            else os.path.dirname(os.path.abspath(__file__))
         )
+        log_path = os.path.join(base, "crash.log")
         try:
             with open(log_path, "w", encoding="utf-8") as log_file:
                 log_file.write(traceback.format_exc())
